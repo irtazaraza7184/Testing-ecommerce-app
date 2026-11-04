@@ -8,6 +8,7 @@ interface AuthContextType {
   role: 'customer' | 'admin';
   isAuthenticated: boolean;
   login: (email: string, pass: string) => Promise<boolean>;
+  loginWithGoogle: () => Promise<boolean>;
   register: (name: string, email: string, phone: string, pass: string) => Promise<boolean>;
   logout: () => Promise<void>;
   switchRole: (role: 'customer' | 'admin') => Promise<void>;
@@ -25,6 +26,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const role = user?.role || 'customer';
   const isAuthenticated = !!user;
+
+  const loginWithGoogle = async () => {
+    try {
+      const loggedUser = await authService.loginWithGoogle();
+      setUser(loggedUser);
+      toast.success(`Signed in as ${loggedUser.name}!`);
+      return true;
+    } catch {
+      toast.error('Google sign in encountered an issue.');
+      return false;
+    }
+  };
 
   const login = async (email: string, pass: string) => {
     try {
@@ -104,6 +117,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         role,
         isAuthenticated,
         login,
+        loginWithGoogle,
         register,
         logout,
         switchRole,

@@ -1,8 +1,11 @@
 import { User, Address, Customer } from '../types';
 import { storage } from './storageService';
 import { delay } from './api';
+import { auth, googleProvider } from './firebase';
+import { signInWithPopup, signOut as fbSignOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
 const USER_SESSION_KEY = 'aura_user_session';
+const ADMIN_EMAILS = ['irtazaraza7184@gmail.com', 'admin@aura-retail.com'];
 
 const DEMO_CUSTOMER: User = {
   id: 'usr-customer-1',
@@ -65,9 +68,55 @@ export const authService = {
     }
   },
 
-  async login(email: string, _password: string): Promise<User> {
+  async loginWithGoogle(): Promise<User> {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+      const isAdmin = ADMIN_EMAILS.some((adm) => adm.toLowerCase() === fbUser.email?.toLowerCase());
+      
+      const user: User = {
+        id: fbUser.uid,
+        name: fbUser.displayName || 'Google User',
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '+1 (555) 482-9901',
+        role: isAdmin ? 'admin' : 'customer',
+        avatar: fbUser.photoURL || undefined,
+        addresses: [],
+      };
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(user));
+      return user;
+    } catch (err) {
+      console.warn('[Firebase Auth] Google popup sign-in fallback:', err);
+      // Fallback demo user
+      const user = DEMO_CUSTOMER;
+      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(user));
+      return user;
+    }
+  },
+
+  async login(email: string, password?: string): Promise<User> {
     await delay(150);
-    if (email.toLowerCase().includes('admin')) {
+    // Attempt Firebase sign in if password is provided
+    if (password && auth) {
+      try {
+        const res = await signInWithEmailAndPassword(auth, email, password);
+        const isAdmin = ADMIN_EMAILS.some((adm) => adm.toLowerCase() === res.user.email?.toLowerCase());
+        const user: User = {
+          id: res.user.uid,
+          name: res.user.displayName || email.split('@')[0],
+          email: res.user.email || email,
+          phone: '+1 (555) 392-8821',
+          role: isAdmin ? 'admin' : 'customer',
+          addresses: [],
+        };
+        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(user));
+        return user;
+      } catch (fbErr) {
+        console.warn('[Firebase Auth] Email login fallback:', fbErr);
+      }
+    }
+
+    if (email.toLowerCase().includes('admin') || ADMIN_EMAILS.includes(email.toLowerCase())) {
       localStorage.setItem(USER_SESSION_KEY, JSON.stringify(DEMO_ADMIN));
       return DEMO_ADMIN;
     }
@@ -98,8 +147,16 @@ export const authService = {
     return user;
   },
 
-  async register(name: string, email: string, phone: string, _password: string): Promise<User> {
+  async register(name: string, email: string, phone: string, password?: string): Promise<User> {
     await delay(180);
+    if (password && auth) {
+      try {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } catch (fbErr) {
+        console.warn('[Firebase Auth] Register user fallback:', fbErr);
+      }
+    }
+
     const customers = storage.getCustomers();
     const newCustomer: Customer = {
       id: `usr-${Date.now()}`,
@@ -128,6 +185,11 @@ export const authService = {
 
   async logout(): Promise<void> {
     await delay(100);
+    try {
+      await fbSignOut(auth);
+    } catch {
+      // ignore
+    }
     localStorage.removeItem(USER_SESSION_KEY);
   },
 

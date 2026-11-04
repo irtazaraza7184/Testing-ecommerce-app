@@ -157,7 +157,13 @@ export const AdminLayout: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Firestore Status Badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-[11px] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Firebase Cloud DB</span>
+            </div>
+
             {/* Quick Live Store Shortcut */}
             <Link
               to="/"

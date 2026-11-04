@@ -1,21 +1,31 @@
 import { Order, OrderStatus, Coupon, Review } from '../types';
 import { storage } from './storageService';
-import { api } from './api';
+import { firestoreService } from './firestoreService';
 
 export const orderService = {
   async getOrders(userId?: string): Promise<Order[]> {
-    const endpoint = userId ? `/orders?userId=${userId}` : '/orders';
-    return api.get<Order[]>(endpoint, () => {
-      const orders = storage.getOrders();
-      return userId ? orders.filter((o) => o.userId === userId) : orders;
-    });
+    let orders: Order[] = [];
+    try {
+      orders = await firestoreService.getOrders();
+      if (!orders || orders.length === 0) {
+        orders = storage.getOrders();
+      } else {
+        storage.saveOrders(orders);
+      }
+    } catch {
+      orders = storage.getOrders();
+    }
+
+    if (userId) {
+      return orders.filter((o) => o.userId === userId);
+    }
+    return orders;
   },
 
   async getOrderById(id: string): Promise<Order | null> {
-    return api.get<Order | null>(`/orders/${id}`, () => {
-      const orders = storage.getOrders();
-      return orders.find((o) => o.id === id || o.orderNumber === id) || null;
-    });
+    const orders = await this.getOrders();
+    const term = id.toLowerCase().trim();
+    return orders.find((o) => o.id.toLowerCase() === term || o.orderNumber.toLowerCase() === term) || null;
   },
 
   async getOrderByNumber(orderNumber: string): Promise<Order | null> {
@@ -25,145 +35,191 @@ export const orderService = {
   async createOrder(
     orderInput: Omit<Order, 'id' | 'orderNumber' | 'statusHistory' | 'createdAt' | 'status' | 'estimatedDelivery'>
   ): Promise<Order> {
-    return api.post<Order>('/orders', orderInput, () => {
-      const orders = storage.getOrders();
-      const dateStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
-      const uniqueNum = Math.floor(1000 + Math.random() * 9000);
-      const orderNumber = `AUR-${new Date().getFullYear()}-${uniqueNum}`;
+    const dateStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+    const uniqueNum = Math.floor(1000 + Math.random() * 9000);
+    const orderNumber = `AUR-${new Date().getFullYear()}-${uniqueNum}`;
 
-      const newOrder: Order = {
-        ...orderInput,
-        id: `ord-${Date.now()}`,
-        orderNumber,
-        createdAt: new Date().toISOString().split('T')[0],
-        status: 'placed',
-        statusHistory: [
-          {
-            status: 'placed',
-            timestamp: dateStr,
-            note: `Order placed successfully via ${orderInput.paymentMethod.toUpperCase()}.`,
-          },
-        ],
-        estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-        }),
-      };
+    const newOrder: Order = {
+      ...orderInput,
+      id: `ord-${Date.now()}`,
+      orderNumber,
+      createdAt: new Date().toISOString().split('T')[0],
+      status: 'placed',
+      statusHistory: [
+        {
+          status: 'placed',
+          timestamp: dateStr,
+          note: `Order verified and placed via ${orderInput.paymentMethod.toUpperCase()}.`,
+        },
+      ],
+      estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    };
 
-      storage.saveOrders([newOrder, ...orders]);
-      return newOrder;
-    });
+    // Save to Firestore
+    await firestoreService.saveOrder(newOrder);
+
+    // Save to local cache
+    const orders = storage.getOrders();
+    storage.saveOrders([newOrder, ...orders]);
+
+    return newOrder;
   },
 
   async updateOrderStatus(id: string, status: OrderStatus, note?: string): Promise<Order | null> {
-    return api.put<Order | null>(`/orders/${id}/status`, { status, note }, () => {
-      const orders = storage.getOrders();
-      const idx = orders.findIndex((o) => o.id === id || o.orderNumber === id);
-      if (idx === -1) return null;
-      const order = orders[idx];
-      order.status = status;
-      order.statusHistory.push({
-        status,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        note: note || `Order status updated to ${status}.`,
-      });
-      orders[idx] = order;
-      storage.saveOrders(orders);
-      return order;
+    await firestoreService.updateOrderStatus(id, status, note);
+
+    const orders = storage.getOrders();
+    const idx = orders.findIndex((o) => o.id === id || o.orderNumber === id);
+    if (idx === -1) return null;
+
+    const order = orders[idx];
+    order.status = status;
+    order.statusHistory.push({
+      status,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+      note: note || `Order status updated to ${status}.`,
     });
+
+    if (status === 'shipped' && !order.trackingNumber) {
+      order.trackingNumber = `FX-${Math.floor(10000000 + Math.random() * 90000000)}`;
+    }
+
+    orders[idx] = order;
+    storage.saveOrders(orders);
+    return order;
   },
 
   // Coupons
   async getCoupons(): Promise<Coupon[]> {
-    return api.get<Coupon[]>('/coupons', () => storage.getCoupons());
+    try {
+      const coupons = await firestoreService.getCoupons();
+      if (coupons && coupons.length > 0) {
+        storage.saveCoupons(coupons);
+        return coupons;
+      }
+    } catch {
+      // fallback
+    }
+    return storage.getCoupons();
   },
 
   async validateCoupon(code: string, subtotal: number): Promise<{ valid: boolean; coupon?: Coupon; message: string; discountAmount: number }> {
-    return api.post<{ valid: boolean; coupon?: Coupon; message: string; discountAmount: number }>(
-      '/coupons/validate',
-      { code, subtotal },
-      () => {
-        const coupons = storage.getCoupons();
-        const coupon = coupons.find((c) => c.code.toLowerCase() === code.trim().toLowerCase() && c.isActive);
-        if (!coupon) return { valid: false, message: 'Invalid or inactive promotional code.', discountAmount: 0 };
-        if (new Date(coupon.expiryDate) < new Date()) return { valid: false, message: 'This promotion has expired.', discountAmount: 0 };
-        if (subtotal < coupon.minPurchase) return { valid: false, message: `Minimum order value of $${coupon.minPurchase} required.`, discountAmount: 0 };
-        const discountAmount = coupon.discountPercentage
-          ? Math.round(((subtotal * coupon.discountPercentage) / 100) * 100) / 100
-          : Math.min(subtotal, coupon.fixedAmount || 0);
-        return { valid: true, coupon, message: 'Voucher applied successfully', discountAmount };
-      }
+    const coupons = await this.getCoupons();
+    const coupon = coupons.find(
+      (c) => c.code.toLowerCase() === code.trim().toLowerCase() && c.isActive
     );
+
+    if (!coupon) {
+      return { valid: false, message: 'Invalid or inactive promotional voucher.', discountAmount: 0 };
+    }
+
+    if (new Date(coupon.expiryDate) < new Date()) {
+      return { valid: false, message: 'This promotion has expired.', discountAmount: 0 };
+    }
+
+    if (subtotal < coupon.minPurchase) {
+      return {
+        valid: false,
+        message: `Minimum order value of $${coupon.minPurchase} required.`,
+        discountAmount: 0,
+      };
+    }
+
+    let discountAmount = 0;
+    if (coupon.discountPercentage) {
+      discountAmount = Math.round(((subtotal * coupon.discountPercentage) / 100) * 100) / 100;
+    } else if (coupon.fixedAmount) {
+      discountAmount = Math.min(subtotal, coupon.fixedAmount);
+    }
+
+    return {
+      valid: true,
+      coupon,
+      message: `Voucher applied: ${coupon.discountPercentage ? `${coupon.discountPercentage}% off` : `$${coupon.fixedAmount} off`}`,
+      discountAmount,
+    };
   },
 
   async createCoupon(coupon: Omit<Coupon, 'id' | 'timesUsed'>): Promise<Coupon> {
-    return api.post<Coupon>('/coupons', coupon, () => {
-      const coupons = storage.getCoupons();
-      const newC: Coupon = { ...coupon, id: `coup-${Date.now()}`, timesUsed: 0 };
-      storage.saveCoupons([newC, ...coupons]);
-      return newC;
-    });
+    const newCoupon: Coupon = {
+      ...coupon,
+      id: `coup-${Date.now()}`,
+      timesUsed: 0,
+    };
+    await firestoreService.saveCoupon(newCoupon);
+    const coupons = storage.getCoupons();
+    storage.saveCoupons([newCoupon, ...coupons]);
+    return newCoupon;
   },
 
   async updateCoupon(id: string, updates: Partial<Coupon>): Promise<Coupon | null> {
-    return api.put<Coupon | null>(`/coupons/${id}`, updates, () => {
-      const coupons = storage.getCoupons();
-      const idx = coupons.findIndex((c) => c.id === id);
-      if (idx === -1) return null;
-      coupons[idx] = { ...coupons[idx], ...updates };
-      storage.saveCoupons(coupons);
-      return coupons[idx];
-    });
+    const coupons = storage.getCoupons();
+    const idx = coupons.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    coupons[idx] = { ...coupons[idx], ...updates };
+    storage.saveCoupons(coupons);
+    await firestoreService.saveCoupon(coupons[idx]);
+    return coupons[idx];
   },
 
   async deleteCoupon(id: string): Promise<boolean> {
-    return api.delete<{ success: boolean }>(`/coupons/${id}`, () => {
-      const coupons = storage.getCoupons();
-      storage.saveCoupons(coupons.filter((c) => c.id !== id));
-      return { success: true };
-    }).then(() => true);
+    await firestoreService.deleteCoupon(id);
+    const coupons = storage.getCoupons();
+    storage.saveCoupons(coupons.filter((c) => c.id !== id));
+    return true;
   },
 
   // Reviews
   async getReviews(productId?: string): Promise<Review[]> {
-    const endpoint = productId ? `/reviews?productId=${productId}` : '/reviews';
-    return api.get<Review[]>(endpoint, () => {
-      const reviews = storage.getReviews();
-      return productId ? reviews.filter((r) => r.productId === productId) : reviews;
-    });
+    let reviews: Review[] = [];
+    try {
+      reviews = await firestoreService.getReviews();
+      if (!reviews || reviews.length === 0) {
+        reviews = storage.getReviews();
+      } else {
+        storage.saveReviews(reviews);
+      }
+    } catch {
+      reviews = storage.getReviews();
+    }
+
+    if (productId) {
+      return reviews.filter((r) => r.productId === productId);
+    }
+    return reviews;
   },
 
   async addReview(reviewData: Omit<Review, 'id' | 'date' | 'status'>): Promise<Review> {
-    return api.post<Review>('/reviews', reviewData, () => {
-      const reviews = storage.getReviews();
-      const newReview: Review = {
-        ...reviewData,
-        id: `rev-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        status: 'approved',
-      };
-      storage.saveReviews([newReview, ...reviews]);
-      return newReview;
-    });
+    const newReview: Review = {
+      ...reviewData,
+      id: `rev-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      status: 'approved',
+    };
+    await firestoreService.saveReview(newReview);
+    const reviews = storage.getReviews();
+    storage.saveReviews([newReview, ...reviews]);
+    return newReview;
   },
 
   async updateReviewStatus(id: string, status: 'approved' | 'hidden'): Promise<Review | null> {
-    return api.put<Review | null>(`/reviews/${id}/status`, { status }, () => {
-      const reviews = storage.getReviews();
-      const idx = reviews.findIndex((r) => r.id === id);
-      if (idx === -1) return null;
-      reviews[idx].status = status;
-      storage.saveReviews(reviews);
-      return reviews[idx];
-    });
+    await firestoreService.updateReviewStatus(id, status);
+    const reviews = storage.getReviews();
+    const idx = reviews.findIndex((r) => r.id === id);
+    if (idx === -1) return null;
+    reviews[idx].status = status;
+    storage.saveReviews(reviews);
+    return reviews[idx];
   },
 
   async deleteReview(id: string): Promise<boolean> {
-    return api.delete<{ success: boolean }>(`/reviews/${id}`, () => {
-      const reviews = storage.getReviews();
-      storage.saveReviews(reviews.filter((r) => r.id !== id));
-      return { success: true };
-    }).then(() => true);
+    await firestoreService.deleteReview(id);
+    const reviews = storage.getReviews();
+    storage.saveReviews(reviews.filter((r) => r.id !== id));
+    return true;
   },
 };

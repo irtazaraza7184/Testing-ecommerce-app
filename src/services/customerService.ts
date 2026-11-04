@@ -1,6 +1,7 @@
 import { Customer, InventoryLog } from '../types';
 import { storage } from './storageService';
 import { api } from './api';
+import { firestoreService } from './firestoreService';
 
 export interface DashboardMetrics {
   totalRevenue: number;
@@ -17,17 +18,29 @@ export interface DashboardMetrics {
 
 export const customerService = {
   async getCustomers(): Promise<Customer[]> {
+    try {
+      const customers = await firestoreService.getCustomers();
+      if (customers && customers.length > 0) {
+        storage.saveCustomers(customers);
+        return customers;
+      }
+    } catch {
+      // fallback below
+    }
     return api.get<Customer[]>('/customers', () => storage.getCustomers());
   },
 
   async getCustomerById(id: string): Promise<Customer | null> {
-    return api.get<Customer | null>(`/customers/${id}`, () => {
-      const customers = storage.getCustomers();
-      return customers.find((c) => c.id === id) || null;
-    });
+    const customers = await this.getCustomers();
+    return customers.find((c) => c.id === id) || null;
   },
 
   async updateCustomerStatus(id: string, status: 'active' | 'suspended'): Promise<Customer | null> {
+    try {
+      await firestoreService.updateCustomerStatus(id, status);
+    } catch {
+      // fallback
+    }
     return api.put<Customer | null>(`/customers/${id}/status`, { status }, () => {
       const customers = storage.getCustomers();
       const idx = customers.findIndex((c) => c.id === id);
@@ -39,6 +52,12 @@ export const customerService = {
   },
 
   async getInventoryLogs(): Promise<InventoryLog[]> {
+    try {
+      const logs = await firestoreService.getInventoryLogs();
+      if (logs && logs.length > 0) return logs;
+    } catch {
+      // fallback
+    }
     return api.get<InventoryLog[]>('/inventory/logs', () => storage.getInventoryLogs());
   },
 
