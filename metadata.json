@@ -1,0 +1,6 @@
+{
+  "name": "AURA — Modern Retail & Design",
+  "description": "A premium, contemporary eCommerce shopping experience and commercial store management platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
