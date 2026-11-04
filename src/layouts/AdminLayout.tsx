@@ -19,6 +19,7 @@ import {
   ChevronDown,
   LogOut,
   ExternalLink,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,6 +40,7 @@ export const AdminLayout: React.FC = () => {
     { label: 'Coupons', path: '/admin/coupons', icon: Tag },
     { label: 'Reviews', path: '/admin/reviews', icon: Star },
     { label: 'Reports', path: '/admin/reports', icon: BarChart3 },
+    { label: 'Cloud Database', path: '/admin/database', icon: Database },
     { label: 'Store Settings', path: '/admin/settings', icon: Settings },
   ];
 
@@ -159,10 +161,14 @@ export const AdminLayout: React.FC = () => {
 
           <div className="flex items-center gap-3">
             {/* Firestore Status Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-[11px] font-medium">
+            <Link
+              to="/admin/database"
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-md text-[11px] font-medium transition-colors"
+              title="Open Firebase Cloud DB Management Console"
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>Firebase Cloud DB</span>
-            </div>
+            </Link>
 
             {/* Quick Live Store Shortcut */}
             <Link

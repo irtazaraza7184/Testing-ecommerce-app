@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { Settings, Shield, Truck, DollarSign, CreditCard, RotateCcw, Check } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Settings, Shield, Truck, DollarSign, CreditCard, RotateCcw, Check, Database, Sparkles, Server } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { storage } from '../../services/storageService';
+import { firestoreService } from '../../services/firestoreService';
 
 export const AdminSettings: React.FC = () => {
   const toast = useToast();
+  const [seedingCloud, setSeedingCloud] = useState(false);
+  const config = firestoreService.getConfig();
 
   const [storeName, setStoreName] = useState('AURA — Modern Retail & Design');
   const [storeEmail, setStoreEmail] = useState('concierge@aura-retail.com');
@@ -20,6 +24,18 @@ export const AdminSettings: React.FC = () => {
   const handleSaveStore = (e: React.FormEvent) => {
     e.preventDefault();
     toast.success('Store configuration and fiscal thresholds saved.');
+  };
+
+  const handleReseedCloud = async () => {
+    setSeedingCloud(true);
+    try {
+      const res = await firestoreService.forceReSeedDatabase();
+      toast.success(`Cloud Firestore reseeded: ${res.products} products, ${res.categories} categories, ${res.orders} orders updated.`);
+    } catch (err: any) {
+      toast.error(`Error writing to Cloud DB: ${err.message}`);
+    } finally {
+      setSeedingCloud(false);
+    }
   };
 
   const handleResetDemo = () => {
@@ -155,6 +171,60 @@ export const AdminSettings: React.FC = () => {
                 className="rounded text-indigo-600 focus:ring-indigo-500"
               />
             </label>
+          </div>
+        </div>
+
+        {/* Cloud Database (Firebase) Configuration */}
+        <div className="bg-slate-950 p-6 rounded-xl border border-slate-800/80 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-900">
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Database className="w-4 h-4 text-emerald-400" />
+              <span>Firebase Cloud Database (Live Provisioned)</span>
+            </h2>
+            <Link
+              to="/admin/database"
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 underline"
+            >
+              Open Full Database Console →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                Database Instance
+              </span>
+              <p className="font-mono text-white text-xs mt-1 truncate" title={config.firestoreDatabaseId}>
+                {config.firestoreDatabaseId}
+              </p>
+            </div>
+            <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                GCP Project
+              </span>
+              <p className="font-mono text-white text-xs mt-1 truncate" title={config.projectId}>
+                {config.projectId}
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={handleReseedCloud}
+              disabled={seedingCloud}
+              className="py-2 px-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            >
+              <Sparkles className={`w-3.5 h-3.5 text-indigo-400 ${seedingCloud ? 'animate-spin' : ''}`} />
+              <span>{seedingCloud ? 'Syncing to Cloud...' : 'Sync Master Data to Cloud DB'}</span>
+            </button>
+            <Link
+              to="/admin/database"
+              className="py-2 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Inspect Collections & Live Documents</span>
+            </Link>
           </div>
         </div>
 

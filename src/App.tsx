@@ -39,6 +39,7 @@ import { AdminCoupons } from './pages/admin/AdminCoupons';
 import { AdminReviews } from './pages/admin/AdminReviews';
 import { AdminReports } from './pages/admin/AdminReports';
 import { AdminSettings } from './pages/admin/AdminSettings';
+import { AdminDatabase } from './pages/admin/AdminDatabase';
 
 export default function App() {
   return (
@@ -76,6 +77,7 @@ export default function App() {
                   <Route path="coupons" element={<AdminCoupons />} />
                   <Route path="reviews" element={<AdminReviews />} />
                   <Route path="reports" element={<AdminReports />} />
+                  <Route path="database" element={<AdminDatabase />} />
                   <Route path="settings" element={<AdminSettings />} />
                 </Route>
 

@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Eye,
   CheckCircle,
+  Database,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -69,6 +70,13 @@ export const AdminOverview: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            to="/admin/database"
+            className="py-2 px-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 border border-slate-700"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>Cloud Database</span>
+          </Link>
           <Link
             to="/admin/products"
             className="py-2 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"

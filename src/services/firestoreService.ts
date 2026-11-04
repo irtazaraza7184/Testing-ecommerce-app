@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   getDoc,
+  getDocFromServer,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -12,6 +13,7 @@ import {
   limit,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { Product, Category, Order, Customer, Review, Coupon, InventoryLog } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -329,6 +331,153 @@ export const firestoreService = {
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'inventoryLogs');
       return INITIAL_INVENTORY_LOGS;
+    }
+  },
+
+  // Diagnostics & Direct Cloud Operations
+  getConfig() {
+    return {
+      projectId: firebaseConfig.projectId,
+      firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
+      appId: firebaseConfig.appId,
+      authDomain: firebaseConfig.authDomain,
+    };
+  },
+
+  async testLiveConnection(): Promise<{ success: boolean; latencyMs: number; message: string }> {
+    const start = performance.now();
+    try {
+      // Per Firestore skill: test connection via getDocFromServer
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      const latencyMs = Math.round(performance.now() - start);
+      return {
+        success: true,
+        latencyMs,
+        message: `Successfully connected to Google Cloud Firestore (${latencyMs}ms).`,
+      };
+    } catch (err: any) {
+      // Fallback probe
+      try {
+        await setDoc(doc(db, 'test', 'connection'), {
+          lastPing: new Date().toISOString(),
+          status: 'online',
+        });
+        const latencyMs = Math.round(performance.now() - start);
+        return {
+          success: true,
+          latencyMs,
+          message: `Firestore write verified (${latencyMs}ms).`,
+        };
+      } catch (innerErr: any) {
+        return {
+          success: false,
+          latencyMs: Math.round(performance.now() - start),
+          message: innerErr?.message || err?.message || 'Connection could not be established.',
+        };
+      }
+    }
+  },
+
+  async forceReSeedDatabase(): Promise<{
+    products: number;
+    categories: number;
+    orders: number;
+    customers: number;
+    coupons: number;
+    reviews: number;
+    inventoryLogs: number;
+  }> {
+    console.log('[Firestore] Overwriting/re-seeding master catalog to live Firestore...');
+    // Seed categories
+    for (const cat of INITIAL_CATEGORIES) {
+      await setDoc(doc(db, 'categories', cat.id), cat);
+    }
+    // Seed products
+    for (const prod of INITIAL_PRODUCTS) {
+      await setDoc(doc(db, 'products', prod.id), prod);
+    }
+    // Seed orders
+    for (const ord of INITIAL_ORDERS) {
+      await setDoc(doc(db, 'orders', ord.id), ord);
+    }
+    // Seed customers
+    for (const cust of INITIAL_CUSTOMERS) {
+      await setDoc(doc(db, 'customers', cust.id), cust);
+    }
+    // Seed reviews
+    for (const rev of INITIAL_REVIEWS) {
+      await setDoc(doc(db, 'reviews', rev.id), rev);
+    }
+    // Seed coupons
+    for (const coup of INITIAL_COUPONS) {
+      await setDoc(doc(db, 'coupons', coup.id), coup);
+    }
+    // Seed inventory logs
+    for (const log of INITIAL_INVENTORY_LOGS) {
+      await setDoc(doc(db, 'inventoryLogs', log.id), log);
+    }
+
+    return {
+      products: INITIAL_PRODUCTS.length,
+      categories: INITIAL_CATEGORIES.length,
+      orders: INITIAL_ORDERS.length,
+      customers: INITIAL_CUSTOMERS.length,
+      coupons: INITIAL_COUPONS.length,
+      reviews: INITIAL_REVIEWS.length,
+      inventoryLogs: INITIAL_INVENTORY_LOGS.length,
+    };
+  },
+
+  async getDatabaseStats(): Promise<{
+    products: number;
+    categories: number;
+    orders: number;
+    customers: number;
+    coupons: number;
+    reviews: number;
+    inventoryLogs: number;
+  }> {
+    try {
+      const [prodSnap, catSnap, ordSnap, custSnap, coupSnap, revSnap, logSnap] = await Promise.all([
+        getDocs(collection(db, 'products')),
+        getDocs(collection(db, 'categories')),
+        getDocs(collection(db, 'orders')),
+        getDocs(collection(db, 'customers')),
+        getDocs(collection(db, 'coupons')),
+        getDocs(collection(db, 'reviews')),
+        getDocs(collection(db, 'inventoryLogs')),
+      ]);
+
+      return {
+        products: prodSnap.size,
+        categories: catSnap.size,
+        orders: ordSnap.size,
+        customers: custSnap.size,
+        coupons: coupSnap.size,
+        reviews: revSnap.size,
+        inventoryLogs: logSnap.size,
+      };
+    } catch (err) {
+      console.warn('[Firestore] Error loading stats, using defaults:', err);
+      return {
+        products: INITIAL_PRODUCTS.length,
+        categories: INITIAL_CATEGORIES.length,
+        orders: INITIAL_ORDERS.length,
+        customers: INITIAL_CUSTOMERS.length,
+        coupons: INITIAL_COUPONS.length,
+        reviews: INITIAL_REVIEWS.length,
+        inventoryLogs: INITIAL_INVENTORY_LOGS.length,
+      };
+    }
+  },
+
+  async getCollectionDocuments(collectionName: string): Promise<any[]> {
+    try {
+      const snap = await getDocs(collection(db, collectionName));
+      return snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+    } catch (err) {
+      console.warn(`[Firestore] Failed to fetch documents for ${collectionName}:`, err);
+      return [];
     }
   },
 };
